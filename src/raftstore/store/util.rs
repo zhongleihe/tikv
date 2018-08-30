@@ -134,6 +134,7 @@ pub fn delete_all_in_range_cf(
     end_key: &[u8],
     use_delete_range: bool,
 ) -> Result<()> {
+    let mut need_flush_memtable = false;
     let handle = rocksdb_util::get_cf_handle(db, cf)?;
     let mut wb = WriteBatch::new();
     // Since CF_RAFT and CF_LOCK is usually small, so using
@@ -156,6 +157,7 @@ pub fn delete_all_in_range_cf(
                 // Otherwise it may cause dirty data when applying snapshot.
                 db.write(wb)?;
                 wb = WriteBatch::new();
+                need_flush_memtable = true;
             }
 
             if !it.next() {
@@ -166,6 +168,12 @@ pub fn delete_all_in_range_cf(
 
     if wb.count() > 0 {
         db.write(wb)?;
+        need_flush_memtable = true;
+    }
+
+    if need_flush_memtable {
+        let handle = rocksdb_util::get_cf_handle(db, cf).unwrap();
+        db.flush_cf(handle, true)?;
     }
 
     Ok(())
