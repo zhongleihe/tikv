@@ -44,7 +44,7 @@ use raftstore::store::worker::{
 use raftstore::store::{keys, Callback, Config, Engines, ReadResponse, RegionSnapshot};
 use raftstore::{Error, Result};
 use util::collections::{HashMap, HashSet};
-use util::time::{duration_to_sec, monotonic_raw_now};
+use util::time::{duration_to_sec, monotonic_now, monotonic_raw_now};
 use util::worker::{FutureWorker, Scheduler};
 use util::{escape, MustConsumeVec};
 
@@ -1034,7 +1034,8 @@ impl Peer {
                     let propose_time = self.find_propose_time(entry.get_index(), entry.get_term());
                     if let Some(propose_time) = propose_time {
                         self.maybe_renew_leader_lease(propose_time);
-                        lease_to_be_updated = false;
+                        // Collect all commit wait duration.
+                        lease_to_be_updated = true;
                     }
                 }
 
@@ -1235,7 +1236,10 @@ impl Peer {
     }
 
     fn find_propose_time(&mut self, index: u64, term: u64) -> Option<Timespec> {
+        let now = monotonic_now();
         while let Some(meta) = self.proposals.pop(term) {
+            let duration = now - meta.renew_lease_time.unwrap();
+            PEER_COMMIT_LOG_HISTOGRAM.observe(duration_to_sec(duration.to_std().unwrap()));
             if meta.index == index && meta.term == term {
                 return Some(meta.renew_lease_time.unwrap());
             }

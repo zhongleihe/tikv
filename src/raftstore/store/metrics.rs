@@ -49,6 +49,13 @@ lazy_static! {
             exponential_buckets(0.0005, 2.0, 20).unwrap()
         ).unwrap();
 
+    pub static ref PEER_COMMIT_LOG_HISTOGRAM: Histogram =
+        register_histogram!(
+            "tikv_raftstore_commit_log_duration_seconds",
+            "Bucketed histogram of peer commits logs duration",
+            exponential_buckets(0.0005, 2.0, 20).unwrap()
+        ).unwrap();
+
     pub static ref STORE_RAFT_READY_COUNTER_VEC: IntCounterVec =
         register_int_counter_vec!(
             "tikv_raftstore_raft_ready_handled_total",
