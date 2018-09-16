@@ -1027,15 +1027,16 @@ impl Peer {
                 // have no effect.
                 self.proposals.clear();
             }
+            let now = monotonic_raw_now();
             for entry in committed_entries.iter().rev() {
                 // raft meta is very small, can be ignored.
                 self.raft_log_size_hint += entry.get_data().len() as u64;
                 if lease_to_be_updated {
-                    let propose_time = self.find_propose_time(entry.get_index(), entry.get_term());
+                    let propose_time =
+                        self.find_propose_time(entry.get_index(), entry.get_term(), now);
                     if let Some(propose_time) = propose_time {
                         self.maybe_renew_leader_lease(propose_time);
-                        // Collect all commit wait duration.
-                        lease_to_be_updated = true;
+                        lease_to_be_updated = false;
                     }
                 }
 
@@ -1235,8 +1236,7 @@ impl Peer {
         true
     }
 
-    fn find_propose_time(&mut self, index: u64, term: u64) -> Option<Timespec> {
-        let now = monotonic_raw_now();
+    fn find_propose_time(&mut self, index: u64, term: u64, now: Timespec) -> Option<Timespec> {
         while let Some(meta) = self.proposals.pop(term) {
             let duration = now - meta.renew_lease_time.unwrap();
             PEER_COMMIT_LOG_HISTOGRAM.observe(duration_to_sec(duration.to_std().unwrap()));
