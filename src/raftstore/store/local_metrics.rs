@@ -301,6 +301,36 @@ impl RaftProposeMetrics {
     }
 }
 
+#[derive(Default, Clone)]
+pub struct MioMetrics {
+    pub notify: i64,
+    pub timeout: i64,
+    pub tick: i64,
+}
+
+impl MioMetrics {
+    fn flush(&mut self) {
+        if self.notify > 0 {
+            MIO_EVENT_COUNTER_VEC
+                .with_label_values(&["notify"])
+                .inc_by(self.notify);
+            self.notify = 0;
+        }
+        if self.timeout > 0 {
+            MIO_EVENT_COUNTER_VEC
+                .with_label_values(&["timeout"])
+                .inc_by(self.timeout);
+            self.notify = 0;
+        }
+        if self.tick > 0 {
+            MIO_EVENT_COUNTER_VEC
+                .with_label_values(&["tick"])
+                .inc_by(self.tick);
+            self.notify = 0;
+        }
+    }
+}
+
 /// The buffered metrics counters for raft.
 #[derive(Clone)]
 pub struct RaftMetrics {
@@ -312,6 +342,7 @@ pub struct RaftMetrics {
     pub process_ready: LocalHistogram,
     pub append_log: LocalHistogram,
     pub leader_missing: usize,
+    pub mio: MioMetrics,
 }
 
 impl Default for RaftMetrics {
@@ -329,6 +360,7 @@ impl Default for RaftMetrics {
                 .local(),
             append_log: PEER_APPEND_LOG_HISTOGRAM.local(),
             leader_missing: 0,
+            mio: Default::default(),
         }
     }
 }
@@ -344,5 +376,6 @@ impl RaftMetrics {
         self.append_log.flush();
         self.message_dropped.flush();
         LEADER_MISSING.set(self.leader_missing as i64);
+        self.mio.flush();
     }
 }

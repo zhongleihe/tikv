@@ -228,4 +228,11 @@ lazy_static! {
             "Bucketed histogram of rocksdb ingestion durations",
             exponential_buckets(0.005, 2.0, 20).unwrap()
         ).unwrap();
+
+    pub static ref MIO_EVENT_COUNTER_VEC: IntCounterVec =
+        register_int_counter_vec!(
+            "tikv_raftstore_mio_event_total",
+            "Total number of raftstore mio events.",
+            &["event"]
+        ).unwrap();
 }

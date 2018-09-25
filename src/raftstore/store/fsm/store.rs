@@ -1012,6 +1012,7 @@ impl<T: Transport, C: PdClient> mio::Handler for Store<T, C> {
     type Message = Msg;
 
     fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: Msg) {
+        self.raft_metrics.mio.notify += 1;
         match msg {
             Msg::RaftMessage(data) => if let Err(e) = self.on_raft_message(data) {
                 error!("{} handle raft message err: {:?}", self.tag, e);
@@ -1088,6 +1089,7 @@ impl<T: Transport, C: PdClient> mio::Handler for Store<T, C> {
     }
 
     fn timeout(&mut self, event_loop: &mut EventLoop<Self>, timeout: Tick) {
+        self.raft_metrics.mio.timeout += 1;
         let t = SlowTimer::new();
         match timeout {
             Tick::Raft => self.on_raft_base_tick(event_loop),
@@ -1108,6 +1110,7 @@ impl<T: Transport, C: PdClient> mio::Handler for Store<T, C> {
 
     // This method is invoked very frequently, should avoid time consuming operation.
     fn tick(&mut self, event_loop: &mut EventLoop<Self>) {
+        self.raft_metrics.mio.tick += 1;
         if !event_loop.is_running() {
             self.stop();
             return;
