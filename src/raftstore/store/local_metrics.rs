@@ -320,13 +320,13 @@ impl MioMetrics {
             MIO_EVENT_COUNTER_VEC
                 .with_label_values(&["timeout"])
                 .inc_by(self.timeout);
-            self.notify = 0;
+            self.timeout = 0;
         }
         if self.tick > 0 {
             MIO_EVENT_COUNTER_VEC
                 .with_label_values(&["tick"])
                 .inc_by(self.tick);
-            self.notify = 0;
+            self.tick = 0;
         }
     }
 }
