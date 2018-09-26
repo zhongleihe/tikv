@@ -2202,6 +2202,7 @@ impl Runnable<Task> for Runner {
             Task::Applies(a) => {
                 let elapsed = duration_to_sec(a.start.elapsed());
                 APPLY_TASK_WAIT_TIME_HISTOGRAM.observe(elapsed);
+                APPLY_TASK_SIZE_HISTOGRAM.observe(a.vec.len() as _);
                 self.handle_applies(a.vec);
             }
             Task::Proposals(props) => self.handle_proposals(props),

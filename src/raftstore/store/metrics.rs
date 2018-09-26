@@ -49,6 +49,13 @@ lazy_static! {
             exponential_buckets(0.0005, 2.0, 20).unwrap()
         ).unwrap();
 
+    pub static ref APPLY_TASK_SIZE_HISTOGRAM: Histogram =
+        register_histogram!(
+            "tikv_raftstore_apply_task_size",
+            "Bucketed histogram of apply task size",
+            exponential_buckets(1.0, 2.0, 14).unwrap()
+        ).unwrap();
+
     pub static ref PEER_COMMIT_LOG_HISTOGRAM: Histogram =
         register_histogram!(
             "tikv_raftstore_commit_log_duration_seconds",
