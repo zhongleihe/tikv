@@ -301,11 +301,23 @@ impl RaftProposeMetrics {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct MioMetrics {
     pub notify: i64,
     pub timeout: i64,
     pub tick: i64,
+    pub iter_dur: LocalHistogram,
+}
+
+impl Default for MioMetrics {
+    fn default() -> MioMetrics {
+        MioMetrics {
+            notify: 0,
+            timeout: 0,
+            tick: 0,
+            iter_dur: MIO_ITER_DURATION.local(),
+        }
+    }
 }
 
 impl MioMetrics {
@@ -328,6 +340,7 @@ impl MioMetrics {
                 .inc_by(self.tick);
             self.tick = 0;
         }
+        self.iter_dur.flush();
     }
 }
 

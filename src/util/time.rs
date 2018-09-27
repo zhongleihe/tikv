@@ -62,6 +62,13 @@ impl SlowTimer {
         SlowTimer::default()
     }
 
+    pub fn new_accurate() -> SlowTimer {
+        SlowTimer {
+            slow_time: Duration::from_secs(DEFAULT_SLOW_SECS),
+            t: Instant::now(),
+        }
+    }
+
     pub fn from(slow_time: Duration) -> SlowTimer {
         SlowTimer {
             slow_time,

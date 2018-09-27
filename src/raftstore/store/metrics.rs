@@ -42,6 +42,13 @@ lazy_static! {
             exponential_buckets(0.0005, 2.0, 20).unwrap()
         ).unwrap();
 
+    pub static ref STORE_APPLY_DURATION: Histogram =
+        register_histogram!(
+            "tikv_raftstore_apply_write_duration_seconds",
+            "Bucketed histogram of peer applying log duration",
+            exponential_buckets(0.0001, 2.0, 20).unwrap()
+        ).unwrap();
+
     pub static ref APPLY_TASK_WAIT_TIME_HISTOGRAM: Histogram =
         register_histogram!(
             "tikv_raftstore_apply_wait_time_duration_secs",
@@ -241,5 +248,12 @@ lazy_static! {
             "tikv_raftstore_mio_event_total",
             "Total number of raftstore mio events.",
             &["event"]
+        ).unwrap();
+
+    pub static ref MIO_ITER_DURATION: Histogram =
+        register_histogram!(
+            "tikv_raftstore_mio_run_once_duration",
+            "Bucketed histogram of raftstore mio run once duration.",
+            exponential_buckets(0.000001, 2.0, 20).unwrap()
         ).unwrap();
 }

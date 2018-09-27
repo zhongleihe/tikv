@@ -28,6 +28,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver as StdReceiver;
 use std::sync::Arc;
+use std::time::Instant;
 use std::u64;
 use time::Timespec;
 
@@ -108,4 +109,5 @@ pub struct Store<T, C: 'static> {
     pending_votes: RingQueue<RaftMessage>,
 
     store_stat: StoreStat,
+    last_tick: Option<Instant>,
 }

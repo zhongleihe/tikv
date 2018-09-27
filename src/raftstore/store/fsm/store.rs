@@ -181,6 +181,7 @@ impl<T: Transport, C: PdClient> Store<T, C> {
             start_time: time::get_time(),
             is_busy: false,
             store_stat: StoreStat::default(),
+            last_tick: None,
         };
         s.init()?;
         Ok(s)
@@ -1110,7 +1111,6 @@ impl<T: Transport, C: PdClient> mio::Handler for Store<T, C> {
 
     // This method is invoked very frequently, should avoid time consuming operation.
     fn tick(&mut self, event_loop: &mut EventLoop<Self>) {
-        self.raft_metrics.mio.tick += 1;
         if !event_loop.is_running() {
             self.stop();
             return;
@@ -1126,6 +1126,15 @@ impl<T: Transport, C: PdClient> mio::Handler for Store<T, C> {
         self.poll_apply();
 
         self.pending_snapshot_regions.clear();
+
+        self.raft_metrics.mio.tick += 1;
+        if let Some(last) = self.last_tick.take() {
+            self.raft_metrics
+                .mio
+                .iter_dur
+                .observe(duration_to_sec(last.elapsed()));
+        }
+        self.last_tick = Some(Instant::now());
     }
 }
 
