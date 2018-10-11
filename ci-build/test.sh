@@ -42,6 +42,10 @@ else
 fi
 status=$?
 git diff-index --quiet HEAD -- || echo "\e[35mplease run tests before creating a pr!!!\e[0m"
+
+# output the traces of failed tests.
+# TODO: Ensure we don't catch the output for `#[should_panic]` tests by only getting the output
+# from failed tests.
 for case in `cat tests.out | python -c "import sys
 import re
 p = re.compile(\"thread '([^']+)' panicked at\")
@@ -55,8 +59,6 @@ print ('\n'.join(cases))
 "`; do
     echo find fail cases: $case
     grep $case $LOG_FILE | cut -d ' ' -f 2-
-    # there is a thread panic, which should not happen.
-    status=1
     echo
 done
 
