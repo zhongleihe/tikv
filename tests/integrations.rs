@@ -46,6 +46,12 @@ mod pd;
 mod raftstore_cases;
 mod storage_cases;
 
+#[test]
+#[should_panic]
+fn __this_panics() {
+    panic!("at the disco!");
+}
+
 // The prefix "_" here is to guarantee running this case first.
 #[test]
 fn _0_ci_setup() {
