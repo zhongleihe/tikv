@@ -30,6 +30,12 @@ harness = false
 [[bench]]
 name = "benches"
 
+[patch.crates-io]
+raft = { git = "https://github.com/hicqu/raft-rs.git", branch = "master-0.3" }
+
+[patch.'https://github.com/pingcap/rust-rocksdb.git']
+"rocksdb" = { git = "https://github.com/huachaohuang/rust-rocksdb.git", branch = "ingestion" }
+
 [dependencies]
 log = { version = "0.3", features = ["release_max_level_debug"] }
 slog = "2.3"
@@ -82,15 +88,11 @@ hex = "0.3"
 rust-crypto = "^0.2"
 panic_hook = { path = "components/panic_hook" }
 
-[replace]
-"raft:0.3.1" = { git = "https://github.com/pingcap/raft-rs.git" }
-
 [dependencies.murmur3]
 git = "https://github.com/pingcap/murmur3.git"
 
 [dependencies.rocksdb]
-git = "https://github.com/busyjay/rust-rocksdb.git"
-branch = "hot-fix"
+git = "https://github.com/pingcap/rust-rocksdb.git"
 
 [dependencies.kvproto]
 git = "https://github.com/pingcap/kvproto.git"
