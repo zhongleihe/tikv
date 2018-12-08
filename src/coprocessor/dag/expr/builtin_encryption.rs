@@ -20,7 +20,12 @@ use crypto::{
     md5::Md5,
     sha1::Sha1,
     sha2::{Sha224, Sha256, Sha384, Sha512},
+    aes,
+    blockmodes,
+    buffer,
 };
+use crypto::buffer::WriteBuffer;
+use crypto::buffer::ReadBuffer;
 use flate2::read::{ZlibDecoder, ZlibEncoder};
 use flate2::Compression;
 use hex;
@@ -31,6 +36,39 @@ const SHA224: i64 = 224;
 const SHA256: i64 = 256;
 const SHA384: i64 = 384;
 const SHA512: i64 = 512;
+//const AES_BLOCK_SIZE: i64 = 16;
+
+
+fn derive_key_mysql(input: &[u8], block_size: usize) -> Vec<u8> {
+    let mut output: Vec<u8> = vec![0; block_size];
+    let mut idx = 0;
+    for k in input {
+        if idx == block_size {
+            idx = 0;
+        }
+        output[idx] ^= k;
+        idx += 1;
+    }
+    output
+}
+
+fn get_key_size(key_size: usize) -> aes::KeySize {
+    match  key_size {
+        16 => {
+            return aes::KeySize::KeySize128;
+        }
+        24 => {
+            return aes::KeySize::KeySize192;
+        }
+        32 => {
+            return aes::KeySize::KeySize256;
+        }
+        _  =>  {
+            panic!("not support key_size: {}", key_size);
+        }
+    }
+}
+
 
 impl ScalarFunc {
     pub fn md5<'a, 'b: 'a>(
@@ -174,6 +212,98 @@ impl ScalarFunc {
             return Ok(Some(0));
         }
         Ok(Some(i64::from(LittleEndian::read_u32(&input[0..4]))))
+    }
+
+    pub fn aes_encrypt<'a, 'b: 'a>(
+        &'b self,
+        ctx: &mut EvalContext,
+        row: &[Datum],
+    ) -> Result<Option<Cow<'a, [u8]>>> {
+        let crypt = try_opt!(self.children[0].eval_string(ctx, row));
+        let key = try_opt!(self.children[1].eval_string(ctx, row));
+        if ctx.aes_mode.unwrap().iv_required && self.children.len() == 3 {
+            ctx.warnings.append_warning(Error::wrong_args(&"IV error".to_string()));
+            return Ok(None);
+        }
+        let key_size = ctx.aes_mode.unwrap().key_size;
+        let key_mysql = derive_key_mysql(key.as_ref(), key_size);
+        let aes_key_size = get_key_size(key_size);
+
+        match ctx.aes_mode.unwrap().mode_name {
+            "ecb" => {
+                let mut encryptor = aes::ecb_encryptor(aes_key_size, key_mysql.as_ref(), blockmodes::PkcsPadding);
+                let mut final_result = Vec::<u8>::new();
+                let mut read_buffer = buffer::RefReadBuffer::new(crypt.as_ref());
+                let mut buffer = [0; 4096];
+                let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
+                loop {
+                    let result = encryptor.encrypt(&mut read_buffer, &mut write_buffer, true);
+                    final_result.extend(write_buffer.take_read_buffer().take_remaining().iter().map(|&i| i));
+                    match result {
+                        Ok(buffer::BufferResult::BufferUnderflow) => break,
+                        Ok(buffer::BufferResult::BufferOverflow) => {
+                            ctx.warnings.append_warning(Error::wrong_args(&"Decryption not completed".to_string()));
+                            return Ok(None);
+                        }
+                        Err(_) => {
+                            ctx.warnings.append_warning(Error::wrong_args(&"Error".to_string()));
+                            return Ok(None);
+                        }
+                    }
+                }
+                return Ok(Some(Cow::Owned(final_result)));
+            }
+            _ => {
+                ctx.warnings.append_warning(Error::not_support(ctx.aes_mode.unwrap().mode_name));
+                return Ok(None);
+            }
+        }
+    }
+
+    pub fn aes_decrypt<'a, 'b: 'a>(
+        &'b self,
+        ctx: &mut EvalContext,
+        row: &[Datum],
+    ) -> Result<Option<Cow<'a, [u8]>>> {
+        let crypt = try_opt!(self.children[0].eval_string(ctx, row));
+        let key = try_opt!(self.children[1].eval_string(ctx, row));
+        if ctx.aes_mode.unwrap().iv_required && self.children.len() == 3 {
+            ctx.warnings.append_warning(Error::wrong_args(&"IV error".to_string()));
+            return Ok(None);
+        }
+        let key_size = ctx.aes_mode.unwrap().key_size;
+        let key_mysql = derive_key_mysql(key.as_ref(), key_size);
+        let aes_key_size = get_key_size(key_size);
+
+        match ctx.aes_mode.unwrap().mode_name {
+            "ecb" => {
+                let mut decryptor = aes::ecb_decryptor(aes_key_size, key_mysql.as_ref(), blockmodes::PkcsPadding);
+                let mut final_result = Vec::<u8>::new();
+                let mut read_buffer = buffer::RefReadBuffer::new(crypt.as_ref());
+                let mut buffer = [0; 4096];
+                let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
+                loop {
+                    let result = decryptor.decrypt(&mut read_buffer, &mut write_buffer, true);
+                    final_result.extend(write_buffer.take_read_buffer().take_remaining().iter().map(|&i| i));
+                    match result {
+                        Ok(buffer::BufferResult::BufferUnderflow) => break,
+                        Ok(buffer::BufferResult::BufferOverflow) => {
+                            ctx.warnings.append_warning(Error::wrong_args(&"Decryption not completed".to_string()));
+                            return Ok(None);
+                        }
+                        Err(_) => {
+                            ctx.warnings.append_warning(Error::wrong_args(&"Error".to_string()));
+                            return Ok(None);
+                        }
+                    }
+                }
+                return Ok(Some(Cow::Owned(final_result)));
+            }
+            _ => {
+                ctx.warnings.append_warning(Error::not_support(ctx.aes_mode.unwrap().mode_name));
+                return Ok(None);
+            }
+        }
     }
 }
 
@@ -368,6 +498,47 @@ mod tests {
             let s = Datum::Bytes(hex::decode(s.as_bytes().to_vec()).unwrap());
             let got = eval_func(ScalarFuncSig::UncompressedLength, &[s]).unwrap();
             assert_eq!(got, Datum::I64(exp));
+        }
+    }
+
+    const DATA: &'static [(&'static str, &'static str, &'static str, &'static str)] = &[
+        ("aes-128-ecb", "pingcap", "1234567890123456", "697BFE9B3F8C2F289DD82C88C7BC95C4"),
+        ("aes-128-ecb", "pingcap123", "1234567890123456", "CEC348F4EF5F84D3AA6C4FA184C65766"),
+        ("aes-128-ecb", "pingcap", "123456789012345678901234", "6F1589686860C8E8C7A40A78B25FF2C0"),
+        ("aes-128-ecb", "pingcap", "123", "996E0CA8688D7AD20819B90B273E01C6"),
+        ("aes-192-ecb", "pingcap", "1234567890123456", "9B139FD002E6496EA2D5C73A2265E661"),
+        ("aes-256-ecb", "pingcap", "1234567890123456", "F80DCDEDDBE5663BDB68F74AEDDB8EE3"),
+    ];
+
+    #[test]
+    fn test_aes_encrypt() {
+        use super::{EvalContext};
+        let mut ctx = EvalContext::default();
+        for (aes_name, origin, key, crypt) in DATA {
+            ctx.aes_mode = ctx.cfg.aes_modes.get_mode_attr(aes_name);
+            let origin = datum_expr(Datum::Bytes(origin.as_bytes().to_vec()));
+            let key = datum_expr(Datum::Bytes(key.as_bytes().to_vec()));
+            let op = scalar_func_expr(ScalarFuncSig::AesEncrypt, &[origin, key]);
+            let op = Expression::build(&mut ctx, op).unwrap();
+            let got = op.eval(&mut ctx, &[]).unwrap();
+            let crypt = Datum::Bytes(hex::decode(crypt.as_bytes().to_vec()).unwrap());
+            assert_eq!(got, crypt);
+        }
+    }
+
+    #[test]
+    fn test_aes_decrypt() {
+        use super::{EvalContext};
+        let mut ctx = EvalContext::default();
+        for (aes_name, origin, key, crypt) in DATA {
+            ctx.aes_mode = ctx.cfg.aes_modes.get_mode_attr(aes_name);
+            let crypt = datum_expr(Datum::Bytes(hex::decode(crypt.as_bytes().to_vec()).unwrap()));
+            let key = datum_expr(Datum::Bytes(key.as_bytes().to_vec()));
+            let op = scalar_func_expr(ScalarFuncSig::AesDecrypt, &[crypt, key]);
+            let op = Expression::build(&mut ctx, op).unwrap();
+            let got = op.eval(&mut ctx, &[]).unwrap();
+            let origin = Datum::Bytes(origin.as_bytes().to_vec());
+            assert_eq!(got, origin);
         }
     }
 }

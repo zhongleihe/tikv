@@ -119,6 +119,8 @@ impl ScalarFunc {
             | ScalarFuncSig::RoundWithFracReal
             | ScalarFuncSig::DateFormatSig
             | ScalarFuncSig::SHA2
+            | ScalarFuncSig::AesDecrypt
+            | ScalarFuncSig::AesEncrypt
             | ScalarFuncSig::TruncateInt
             | ScalarFuncSig::WeekWithMode
             | ScalarFuncSig::TruncateReal
@@ -360,8 +362,6 @@ impl ScalarFunc {
             | ScalarFuncSig::AddTimeDateTimeNull
             | ScalarFuncSig::AddTimeDurationNull
             | ScalarFuncSig::AddTimeStringNull
-            | ScalarFuncSig::AesDecrypt
-            | ScalarFuncSig::AesEncrypt
             | ScalarFuncSig::Char
             | ScalarFuncSig::ConcatWS
             | ScalarFuncSig::ConnectionID
@@ -954,6 +954,8 @@ dispatch_call! {
         Inet6Ntoa => inet6_ntoa,
         MD5 => md5,
         SHA1 => sha1,
+        AesDecrypt => aes_decrypt,
+        AesEncrypt => aes_encrypt,
         SHA2 => sha2,
         Elt => elt,
         FromBase64 => from_base64,
@@ -1139,6 +1141,8 @@ mod tests {
                     ScalarFuncSig::Substring2Args,
                     ScalarFuncSig::SubstringBinary2Args,
                     ScalarFuncSig::Strcmp,
+                    ScalarFuncSig::AesDecrypt,
+                    ScalarFuncSig::AesEncrypt,
                 ],
                 2,
                 2,
@@ -1413,8 +1417,6 @@ mod tests {
             ScalarFuncSig::AddTimeDateTimeNull,
             ScalarFuncSig::AddTimeDurationNull,
             ScalarFuncSig::AddTimeStringNull,
-            ScalarFuncSig::AesDecrypt,
-            ScalarFuncSig::AesEncrypt,
             ScalarFuncSig::Char,
             ScalarFuncSig::ConcatWS,
             ScalarFuncSig::ConnectionID,

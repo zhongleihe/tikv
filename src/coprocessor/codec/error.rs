@@ -24,6 +24,7 @@ use util;
 
 pub const ERR_UNKNOWN: i32 = 1105;
 pub const ERR_REGEXP: i32 = 1139;
+pub const ERR_WRONG_ARGUMENTS: i32 = 1210;
 pub const ZLIB_LENGTH_CORRUPTED: i32 = 1258;
 pub const ZLIB_DATA_CORRUPTED: i32 = 1259;
 pub const WARN_DATA_TRUNCATED: i32 = 1265;
@@ -153,6 +154,16 @@ impl Error {
 
     pub fn zlib_data_corrupted() -> Error {
         Error::Eval("ZLIB: Input data corrupted".into(), ZLIB_DATA_CORRUPTED)
+    }
+    
+    pub fn wrong_args(val: &str) -> Error {
+        let msg = format!("wrong arguments: '{}'", val);
+        Error::Eval(msg, ERR_WRONG_ARGUMENTS)
+    }
+
+    pub fn not_support(val: &str) -> Error {
+        let msg = format!("not_support: '{}'", val);
+        Error::Eval(msg, ERR_UNKNOWN)
     }
 }
 
