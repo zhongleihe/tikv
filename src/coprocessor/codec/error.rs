@@ -155,7 +155,7 @@ impl Error {
     pub fn zlib_data_corrupted() -> Error {
         Error::Eval("ZLIB: Input data corrupted".into(), ZLIB_DATA_CORRUPTED)
     }
-    
+
     pub fn wrong_args(val: &str) -> Error {
         let msg = format!("wrong arguments: '{}'", val);
         Error::Eval(msg, ERR_WRONG_ARGUMENTS)

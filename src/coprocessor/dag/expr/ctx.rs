@@ -12,7 +12,7 @@
 // limitations under the License.
 
 use std::sync::Arc;
-use std::{i64, mem, u64, option::Option};
+use std::{i64, mem, option::Option, u64};
 
 use tipb::select;
 
@@ -91,14 +91,18 @@ impl EvalConfig {
             max_warning_cnt: DEFAULT_MAX_WARNING_CNT,
             sql_mode: 0,
             strict_sql_mode: false,
-            aes_modes: AesModes(DATA.iter().map(|&(aes_name, type_name, size, need_iv)| {
-                    let attr = AesModeAttr {
-                        mode_name: type_name,
-                        key_size: size,
-                        iv_required: need_iv,
-                    };
-                    (aes_name, attr)
-                }).collect()),
+            aes_modes: AesModes(
+                DATA.iter()
+                    .map(|&(aes_name, type_name, size, need_iv)| {
+                        let attr = AesModeAttr {
+                            mode_name: type_name,
+                            key_size: size,
+                            iv_required: need_iv,
+                        };
+                        (aes_name, attr)
+                    })
+                    .collect(),
+            ),
         }
     }
 
@@ -265,7 +269,7 @@ pub struct AesModeAttr {
 #[derive(Debug)]
 pub struct AesModes(HashMap<&'static str, AesModeAttr>);
 impl AesModes {
-    pub fn get_mode_attr(&self, aes_name: &str) -> Option<AesModeAttr>{
+    pub fn get_mode_attr(&self, aes_name: &str) -> Option<AesModeAttr> {
         Some(self.0[aes_name])
     }
 }
@@ -291,14 +295,22 @@ impl Default for EvalContext {
     fn default() -> EvalContext {
         let cfg = Arc::new(EvalConfig::default());
         let warnings = cfg.new_eval_warnings();
-        EvalContext { cfg, warnings, aes_mode: None }
+        EvalContext {
+            cfg,
+            warnings,
+            aes_mode: None,
+        }
     }
 }
 
 impl EvalContext {
     pub fn new(cfg: Arc<EvalConfig>) -> EvalContext {
         let warnings = cfg.new_eval_warnings();
-        EvalContext { cfg, warnings,  aes_mode: None}
+        EvalContext {
+            cfg,
+            warnings,
+            aes_mode: None,
+        }
     }
 
     pub fn set_aes_mode(&mut self, mode: AesModeAttr) -> &mut Self {
