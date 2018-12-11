@@ -274,7 +274,7 @@ impl AesModes {
     }
 }
 
-const DATA: &'static [(&'static str, &'static str, usize, bool)] = &[
+const DATA: &[(&str, &str, usize, bool)] = &[
     ("aes-128-ecb", "ecb", 16, false),
     ("aes-192-ecb", "ecb", 24, false),
     ("aes-256-ecb", "ecb", 32, false),

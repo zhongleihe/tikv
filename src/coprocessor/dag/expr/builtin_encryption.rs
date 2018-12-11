@@ -49,20 +49,15 @@ fn derive_key_mysql(input: &[u8], block_size: usize) -> Vec<u8> {
     output
 }
 
-fn get_key_size(key_size: usize) -> aes::KeySize {
+fn get_key_size(key_size: usize) -> Result<aes::KeySize> {
     match key_size {
-        16 => {
-            return aes::KeySize::KeySize128;
-        }
-        24 => {
-            return aes::KeySize::KeySize192;
-        }
-        32 => {
-            return aes::KeySize::KeySize256;
-        }
-        _ => {
-            panic!("not support key_size: {}", key_size);
-        }
+        16 => Ok(aes::KeySize::KeySize128),
+        24 => Ok(aes::KeySize::KeySize192),
+        32 => Ok(aes::KeySize::KeySize256),
+        _ => Err(Error::wrong_args(&format!(
+            "crypto/aes: invalid key size: '{}'",
+            key_size
+        ))),
     }
 }
 
@@ -219,12 +214,17 @@ impl ScalarFunc {
         let key = try_opt!(self.children[1].eval_string(ctx, row));
         if ctx.aes_mode.unwrap().iv_required && self.children.len() == 3 {
             ctx.warnings
-                .append_warning(Error::wrong_args(&"IV error".to_string()));
-            return Ok(None);
+                .append_warning(Error::warn_option_ignored("IV"));
         }
         let key_size = ctx.aes_mode.unwrap().key_size;
         let key_mysql = derive_key_mysql(key.as_ref(), key_size);
-        let aes_key_size = get_key_size(key_size);
+        let aes_key_size = match get_key_size(key_size) {
+            Ok(size) => size,
+            Err(err) => {
+                ctx.warnings.append_warning(err);
+                return Ok(None);
+            }
+        };
 
         match ctx.aes_mode.unwrap().mode_name {
             "ecb" => {
@@ -241,16 +241,11 @@ impl ScalarFunc {
                             .take_read_buffer()
                             .take_remaining()
                             .iter()
-                            .map(|&i| i),
+                            .cloned(),
                     );
                     match result {
                         Ok(buffer::BufferResult::BufferUnderflow) => break,
-                        Ok(buffer::BufferResult::BufferOverflow) => {
-                            ctx.warnings.append_warning(Error::wrong_args(
-                                &"Decryption not completed".to_string(),
-                            ));
-                            return Ok(None);
-                        }
+                        Ok(buffer::BufferResult::BufferOverflow) => {}
                         Err(_) => {
                             ctx.warnings
                                 .append_warning(Error::wrong_args(&"Error".to_string()));
@@ -258,12 +253,12 @@ impl ScalarFunc {
                         }
                     }
                 }
-                return Ok(Some(Cow::Owned(final_result)));
+                Ok(Some(Cow::Owned(final_result)))
             }
             _ => {
                 ctx.warnings
                     .append_warning(Error::not_support(ctx.aes_mode.unwrap().mode_name));
-                return Ok(None);
+                Ok(None)
             }
         }
     }
@@ -277,12 +272,17 @@ impl ScalarFunc {
         let key = try_opt!(self.children[1].eval_string(ctx, row));
         if ctx.aes_mode.unwrap().iv_required && self.children.len() == 3 {
             ctx.warnings
-                .append_warning(Error::wrong_args(&"IV error".to_string()));
-            return Ok(None);
+                .append_warning(Error::warn_option_ignored("IV"));
         }
         let key_size = ctx.aes_mode.unwrap().key_size;
+        let aes_key_size = match get_key_size(key_size) {
+            Ok(size) => size,
+            Err(err) => {
+                ctx.warnings.append_warning(err);
+                return Ok(None);
+            }
+        };
         let key_mysql = derive_key_mysql(key.as_ref(), key_size);
-        let aes_key_size = get_key_size(key_size);
 
         match ctx.aes_mode.unwrap().mode_name {
             "ecb" => {
@@ -299,16 +299,11 @@ impl ScalarFunc {
                             .take_read_buffer()
                             .take_remaining()
                             .iter()
-                            .map(|&i| i),
+                            .cloned(),
                     );
                     match result {
                         Ok(buffer::BufferResult::BufferUnderflow) => break,
-                        Ok(buffer::BufferResult::BufferOverflow) => {
-                            ctx.warnings.append_warning(Error::wrong_args(
-                                &"Decryption not completed".to_string(),
-                            ));
-                            return Ok(None);
-                        }
+                        Ok(buffer::BufferResult::BufferOverflow) => {}
                         Err(_) => {
                             ctx.warnings
                                 .append_warning(Error::wrong_args(&"Error".to_string()));
@@ -316,12 +311,12 @@ impl ScalarFunc {
                         }
                     }
                 }
-                return Ok(Some(Cow::Owned(final_result)));
+                Ok(Some(Cow::Owned(final_result)))
             }
             _ => {
                 ctx.warnings
                     .append_warning(Error::not_support(ctx.aes_mode.unwrap().mode_name));
-                return Ok(None);
+                Ok(None)
             }
         }
     }
@@ -521,7 +516,7 @@ mod tests {
         }
     }
 
-    const DATA: &'static [(&'static str, &'static str, &'static str, &'static str)] = &[
+    const DATA: &[(&str, &str, &str, &str)] = &[
         (
             "aes-128-ecb",
             "pingcap",
