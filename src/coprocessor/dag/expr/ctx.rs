@@ -18,7 +18,7 @@ use tipb::select;
 
 use super::{Error, Result};
 use coprocessor::codec::mysql::Tz;
-use std::collections::HashMap;
+use util::collections::HashMap;
 
 /// Flags are used by `DAGRequest.flags` to handle execution mode, like how to handle
 /// truncate error.
@@ -67,7 +67,7 @@ pub struct EvalConfig {
     pub sql_mode: u64,
     /// if the session is in strict mode.
     pub strict_sql_mode: bool,
-    pub aes_modes: AesModes,
+    pub aes_modes: Arc<AesModes>,
 }
 
 impl Default for EvalConfig {
@@ -91,7 +91,7 @@ impl EvalConfig {
             max_warning_cnt: DEFAULT_MAX_WARNING_CNT,
             sql_mode: 0,
             strict_sql_mode: false,
-            aes_modes: AesModes(
+            aes_modes: Arc::new(AesModes(
                 DATA.iter()
                     .map(|&(aes_name, type_name, size, need_iv)| {
                         let attr = AesModeAttr {
@@ -102,7 +102,7 @@ impl EvalConfig {
                         (aes_name, attr)
                     })
                     .collect(),
-            ),
+            )),
         }
     }
 

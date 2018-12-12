@@ -37,7 +37,7 @@ const SHA512: i64 = 512;
 //const AES_BLOCK_SIZE: i64 = 16;
 
 fn derive_key_mysql(input: &[u8], block_size: usize) -> Vec<u8> {
-    let mut output: Vec<u8> = vec![0; block_size];
+    let mut output = vec![0; block_size];
     let mut idx = 0;
     for k in input {
         if idx == block_size {
@@ -212,12 +212,20 @@ impl ScalarFunc {
     ) -> Result<Option<Cow<'a, [u8]>>> {
         let crypt = try_opt!(self.children[0].eval_string(ctx, row));
         let key = try_opt!(self.children[1].eval_string(ctx, row));
-        if ctx.aes_mode.unwrap().iv_required && self.children.len() == 3 {
+        let mode = match ctx.aes_mode {
+            Some(mode) => mode,
+            None => {
+                ctx.warnings
+                    .append_warning(Error::warn_option_ignored("aes mode"));
+                return Ok(None);
+            }
+        };
+
+        if mode.iv_required && self.children.len() == 3 {
             ctx.warnings
                 .append_warning(Error::warn_option_ignored("IV"));
         }
-        let key_size = ctx.aes_mode.unwrap().key_size;
-        let key_mysql = derive_key_mysql(key.as_ref(), key_size);
+        let key_size = mode.key_size;
         let aes_key_size = match get_key_size(key_size) {
             Ok(size) => size,
             Err(err) => {
@@ -225,8 +233,9 @@ impl ScalarFunc {
                 return Ok(None);
             }
         };
+        let key_mysql = derive_key_mysql(key.as_ref(), key_size);
 
-        match ctx.aes_mode.unwrap().mode_name {
+        match mode.mode_name {
             "ecb" => {
                 let mut encryptor =
                     aes::ecb_encryptor(aes_key_size, key_mysql.as_ref(), blockmodes::PkcsPadding);
@@ -270,11 +279,20 @@ impl ScalarFunc {
     ) -> Result<Option<Cow<'a, [u8]>>> {
         let crypt = try_opt!(self.children[0].eval_string(ctx, row));
         let key = try_opt!(self.children[1].eval_string(ctx, row));
-        if ctx.aes_mode.unwrap().iv_required && self.children.len() == 3 {
+        let mode = match ctx.aes_mode {
+            Some(mode) => mode,
+            None => {
+                ctx.warnings
+                    .append_warning(Error::warn_option_ignored("aes mode"));
+                return Ok(None);
+            }
+        };
+
+        if mode.iv_required && self.children.len() == 3 {
             ctx.warnings
                 .append_warning(Error::warn_option_ignored("IV"));
         }
-        let key_size = ctx.aes_mode.unwrap().key_size;
+        let key_size = mode.key_size;
         let aes_key_size = match get_key_size(key_size) {
             Ok(size) => size,
             Err(err) => {
@@ -284,7 +302,7 @@ impl ScalarFunc {
         };
         let key_mysql = derive_key_mysql(key.as_ref(), key_size);
 
-        match ctx.aes_mode.unwrap().mode_name {
+        match mode.mode_name {
             "ecb" => {
                 let mut decryptor =
                     aes::ecb_decryptor(aes_key_size, key_mysql.as_ref(), blockmodes::PkcsPadding);
@@ -560,7 +578,8 @@ mod tests {
         use super::EvalContext;
         let mut ctx = EvalContext::default();
         for (aes_name, origin, key, crypt) in DATA {
-            ctx.aes_mode = ctx.cfg.aes_modes.get_mode_attr(aes_name);
+            let mod_attr = ctx.cfg.aes_modes.get_mode_attr(aes_name).unwrap();
+            ctx.set_aes_mode(mod_attr);
             let origin = datum_expr(Datum::Bytes(origin.as_bytes().to_vec()));
             let key = datum_expr(Datum::Bytes(key.as_bytes().to_vec()));
             let op = scalar_func_expr(ScalarFuncSig::AesEncrypt, &[origin, key]);
@@ -576,7 +595,8 @@ mod tests {
         use super::EvalContext;
         let mut ctx = EvalContext::default();
         for (aes_name, origin, key, crypt) in DATA {
-            ctx.aes_mode = ctx.cfg.aes_modes.get_mode_attr(aes_name);
+            let mod_attr = ctx.cfg.aes_modes.get_mode_attr(aes_name).unwrap();
+            ctx.set_aes_mode(mod_attr);
             let crypt = datum_expr(Datum::Bytes(
                 hex::decode(crypt.as_bytes().to_vec()).unwrap(),
             ));
