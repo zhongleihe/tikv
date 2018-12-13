@@ -119,8 +119,6 @@ impl ScalarFunc {
             | ScalarFuncSig::RoundWithFracReal
             | ScalarFuncSig::DateFormatSig
             | ScalarFuncSig::SHA2
-            | ScalarFuncSig::AesDecrypt
-            | ScalarFuncSig::AesEncrypt
             | ScalarFuncSig::TruncateInt
             | ScalarFuncSig::WeekWithMode
             | ScalarFuncSig::TruncateReal
@@ -293,7 +291,9 @@ impl ScalarFunc {
             | ScalarFuncSig::Trim3Args
             | ScalarFuncSig::SubstringIndex
             | ScalarFuncSig::Substring3Args
-            | ScalarFuncSig::SubstringBinary3Args => (3, 3),
+            | ScalarFuncSig::SubstringBinary3Args
+            | ScalarFuncSig::AesDecrypt
+            | ScalarFuncSig::AesEncrypt => (3, 3),
 
             ScalarFuncSig::JsonArraySig | ScalarFuncSig::JsonObjectSig => (0, usize::MAX),
 
@@ -1141,8 +1141,6 @@ mod tests {
                     ScalarFuncSig::Substring2Args,
                     ScalarFuncSig::SubstringBinary2Args,
                     ScalarFuncSig::Strcmp,
-                    ScalarFuncSig::AesDecrypt,
-                    ScalarFuncSig::AesEncrypt,
                 ],
                 2,
                 2,
@@ -1310,6 +1308,8 @@ mod tests {
                     ScalarFuncSig::SubstringIndex,
                     ScalarFuncSig::Substring3Args,
                     ScalarFuncSig::SubstringBinary3Args,
+                    ScalarFuncSig::AesDecrypt,
+                    ScalarFuncSig::AesEncrypt,
                 ],
                 3,
                 3,

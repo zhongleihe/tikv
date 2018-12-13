@@ -12,13 +12,12 @@
 // limitations under the License.
 
 use std::sync::Arc;
-use std::{i64, mem, option::Option, u64};
+use std::{i64, mem, u64};
 
 use tipb::select;
 
 use super::{Error, Result};
 use coprocessor::codec::mysql::Tz;
-use util::collections::HashMap;
 
 /// Flags are used by `DAGRequest.flags` to handle execution mode, like how to handle
 /// truncate error.
@@ -67,7 +66,6 @@ pub struct EvalConfig {
     pub sql_mode: u64,
     /// if the session is in strict mode.
     pub strict_sql_mode: bool,
-    pub aes_modes: Arc<AesModes>,
 }
 
 impl Default for EvalConfig {
@@ -91,18 +89,6 @@ impl EvalConfig {
             max_warning_cnt: DEFAULT_MAX_WARNING_CNT,
             sql_mode: 0,
             strict_sql_mode: false,
-            aes_modes: Arc::new(AesModes(
-                DATA.iter()
-                    .map(|&(aes_name, type_name, size, need_iv)| {
-                        let attr = AesModeAttr {
-                            mode_name: type_name,
-                            key_size: size,
-                            iv_required: need_iv,
-                        };
-                        (aes_name, attr)
-                    })
-                    .collect(),
-            )),
         }
     }
 
@@ -259,63 +245,25 @@ impl EvalWarnings {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct AesModeAttr {
-    pub mode_name: &'static str,
-    pub key_size: usize,
-    pub iv_required: bool,
-}
-
-#[derive(Debug)]
-pub struct AesModes(HashMap<&'static str, AesModeAttr>);
-impl AesModes {
-    pub fn get_mode_attr(&self, aes_name: &str) -> Option<AesModeAttr> {
-        Some(self.0[aes_name])
-    }
-}
-
-const DATA: &[(&str, &str, usize, bool)] = &[
-    ("aes-128-ecb", "ecb", 16, false),
-    ("aes-192-ecb", "ecb", 24, false),
-    ("aes-256-ecb", "ecb", 32, false),
-    ("aes-128-cbc", "cbc", 16, true),
-    ("aes-192-cbc", "cbc", 24, true),
-    ("aes-256-cbc", "cbc", 32, true),
-];
-
 #[derive(Debug)]
 /// Some global variables needed in an evaluation.
 pub struct EvalContext {
     pub cfg: Arc<EvalConfig>,
     pub warnings: EvalWarnings,
-    pub aes_mode: Option<AesModeAttr>,
 }
 
 impl Default for EvalContext {
     fn default() -> EvalContext {
         let cfg = Arc::new(EvalConfig::default());
         let warnings = cfg.new_eval_warnings();
-        EvalContext {
-            cfg,
-            warnings,
-            aes_mode: None,
-        }
+        EvalContext { cfg, warnings }
     }
 }
 
 impl EvalContext {
     pub fn new(cfg: Arc<EvalConfig>) -> EvalContext {
         let warnings = cfg.new_eval_warnings();
-        EvalContext {
-            cfg,
-            warnings,
-            aes_mode: None,
-        }
-    }
-
-    pub fn set_aes_mode(&mut self, mode: AesModeAttr) -> &mut Self {
-        self.aes_mode = Some(mode);
-        self
+        EvalContext { cfg, warnings }
     }
 
     pub fn handle_truncate(&mut self, is_truncated: bool) -> Result<()> {
@@ -514,39 +462,5 @@ mod tests {
             assert_eq!(ctx.handle_invalid_time_error(err).is_ok(), is_ok);
             assert_eq!(ctx.take_warnings().warnings.is_empty(), is_empty);
         }
-    }
-
-    #[test]
-    fn test_get_mode_attr() {
-        let config = EvalConfig::new();
-        let ecb_128 = config.aes_modes.get_mode_attr("aes-128-ecb").unwrap();
-        assert_eq!(ecb_128.mode_name, "ecb".to_string());
-        assert_eq!(ecb_128.key_size, 16);
-        assert_eq!(ecb_128.iv_required, false);
-
-        let ecb_192 = config.aes_modes.get_mode_attr("aes-192-ecb").unwrap();
-        assert_eq!(ecb_192.mode_name, "ecb".to_string());
-        assert_eq!(ecb_192.key_size, 24);
-        assert_eq!(ecb_192.iv_required, false);
-
-        let ecb_256 = config.aes_modes.get_mode_attr("aes-256-ecb").unwrap();
-        assert_eq!(ecb_256.mode_name, "ecb".to_string());
-        assert_eq!(ecb_256.key_size, 32);
-        assert_eq!(ecb_256.iv_required, false);
-
-        let cbc_128 = config.aes_modes.get_mode_attr("aes-128-cbc").unwrap();
-        assert_eq!(cbc_128.mode_name, "cbc".to_string());
-        assert_eq!(cbc_128.key_size, 16);
-        assert_eq!(cbc_128.iv_required, true);
-
-        let cbc_192 = config.aes_modes.get_mode_attr("aes-192-cbc").unwrap();
-        assert_eq!(cbc_192.mode_name, "cbc".to_string());
-        assert_eq!(cbc_192.key_size, 24);
-        assert_eq!(cbc_192.iv_required, true);
-
-        let cbc_256 = config.aes_modes.get_mode_attr("aes-256-cbc").unwrap();
-        assert_eq!(cbc_256.mode_name, "cbc".to_string());
-        assert_eq!(cbc_256.key_size, 32);
-        assert_eq!(cbc_256.iv_required, true);
     }
 }

@@ -15,14 +15,14 @@ use std::borrow::Cow;
 
 use super::{Error, EvalContext, Result, ScalarFunc};
 use coprocessor::codec::Datum;
-use crypto::buffer::ReadBuffer;
-use crypto::buffer::WriteBuffer;
 use crypto::{
     aes, blockmodes, buffer,
+    buffer::{ReadBuffer, WriteBuffer},
     digest::Digest,
     md5::Md5,
     sha1::Sha1,
     sha2::{Sha224, Sha256, Sha384, Sha512},
+    symmetriccipher::{Decryptor, Encryptor},
 };
 use flate2::read::{ZlibDecoder, ZlibEncoder};
 use flate2::Compression;
@@ -34,30 +34,116 @@ const SHA224: i64 = 224;
 const SHA256: i64 = 256;
 const SHA384: i64 = 384;
 const SHA512: i64 = 512;
-//const AES_BLOCK_SIZE: i64 = 16;
-
-fn derive_key_mysql(input: &[u8], block_size: usize) -> Vec<u8> {
-    let mut output = vec![0; block_size];
-    let mut idx = 0;
-    for k in input {
-        if idx == block_size {
-            idx = 0;
-        }
-        output[idx] ^= k;
-        idx += 1;
-    }
-    output
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum AESMode {
+    Aes128Ecb,
+    Aes192Ecb,
+    Aes256Ecb,
+    Aes128Cbc,
+    Aes192Cbc,
+    Aes256Cbc,
 }
 
-fn get_key_size(key_size: usize) -> Result<aes::KeySize> {
-    match key_size {
-        16 => Ok(aes::KeySize::KeySize128),
-        24 => Ok(aes::KeySize::KeySize192),
-        32 => Ok(aes::KeySize::KeySize256),
-        _ => Err(Error::wrong_args(&format!(
-            "crypto/aes: invalid key size: '{}'",
-            key_size
-        ))),
+impl AESMode {
+    pub fn key_size(self) -> aes::KeySize {
+        match self {
+            AESMode::Aes128Ecb | AESMode::Aes128Cbc => aes::KeySize::KeySize128,
+            AESMode::Aes192Ecb | AESMode::Aes192Cbc => aes::KeySize::KeySize192,
+            AESMode::Aes256Ecb | AESMode::Aes256Cbc => aes::KeySize::KeySize256,
+        }
+    }
+
+    pub fn from(mode: &[u8]) -> Option<AESMode> {
+        let mode = match String::from_utf8(mode.to_vec()) {
+            Ok(v) => v,
+            Err(_) => {
+                return None;
+            }
+        };
+        match mode.as_ref() {
+            "aes-128-ecb" => Some(AESMode::Aes128Ecb),
+            "aes-192-ecb" => Some(AESMode::Aes192Ecb),
+            "aes-256-ecb" => Some(AESMode::Aes256Ecb),
+            "aes-128-cbc" => Some(AESMode::Aes128Cbc),
+            "aes-192-cbc" => Some(AESMode::Aes192Cbc),
+            "aes-256-cbc" => Some(AESMode::Aes256Cbc),
+            _ => None,
+        }
+    }
+
+    fn derive_key_mysql(input: &[u8], block_size: usize) -> Vec<u8> {
+        let mut output = vec![0; block_size];
+        let mut idx = 0;
+        for k in input {
+            if idx == block_size {
+                idx = 0;
+            }
+            output[idx] ^= k;
+            idx += 1;
+        }
+        output
+    }
+
+    pub fn build_encryptor(self, key: &[u8], iv: Option<&[u8]>) -> Result<Box<Encryptor>> {
+        let key_size = match self {
+            AESMode::Aes128Ecb | AESMode::Aes128Cbc => 16,
+            AESMode::Aes192Ecb | AESMode::Aes192Cbc => 24,
+            AESMode::Aes256Ecb | AESMode::Aes256Cbc => 32,
+        };
+
+        let mysql_key = AESMode::derive_key_mysql(key, key_size);
+        match self {
+            AESMode::Aes128Ecb | AESMode::Aes192Ecb | AESMode::Aes256Ecb => Ok(aes::ecb_encryptor(
+                self.key_size(),
+                &mysql_key,
+                blockmodes::PkcsPadding,
+            )),
+            AESMode::Aes128Cbc | AESMode::Aes192Cbc | AESMode::Aes256Cbc => {
+                let iv = match iv {
+                    Some(iv) => iv,
+                    None => {
+                        return Err(Error::wrong_args("IV"));
+                    }
+                };
+                Ok(aes::cbc_encryptor(
+                    self.key_size(),
+                    &mysql_key,
+                    iv,
+                    blockmodes::PkcsPadding,
+                ))
+            }
+        }
+    }
+
+    pub fn build_decryptor(self, key: &[u8], iv: Option<&[u8]>) -> Result<Box<Decryptor>> {
+        let key_size = match self {
+            AESMode::Aes128Ecb | AESMode::Aes128Cbc => 16,
+            AESMode::Aes192Ecb | AESMode::Aes192Cbc => 24,
+            AESMode::Aes256Ecb | AESMode::Aes256Cbc => 32,
+        };
+
+        let mysql_key = AESMode::derive_key_mysql(key, key_size);
+        match self {
+            AESMode::Aes128Ecb | AESMode::Aes192Ecb | AESMode::Aes256Ecb => Ok(aes::ecb_decryptor(
+                self.key_size(),
+                &mysql_key,
+                blockmodes::PkcsPadding,
+            )),
+            AESMode::Aes128Cbc | AESMode::Aes192Cbc | AESMode::Aes256Cbc => {
+                let iv = match iv {
+                    Some(iv) => iv,
+                    None => {
+                        return Err(Error::wrong_args("IV"));
+                    }
+                };
+                Ok(aes::cbc_decryptor(
+                    self.key_size(),
+                    &mysql_key,
+                    iv,
+                    blockmodes::PkcsPadding,
+                ))
+            }
+        }
     }
 }
 
@@ -210,66 +296,50 @@ impl ScalarFunc {
         ctx: &mut EvalContext,
         row: &[Datum],
     ) -> Result<Option<Cow<'a, [u8]>>> {
-        let crypt = try_opt!(self.children[0].eval_string(ctx, row));
-        let key = try_opt!(self.children[1].eval_string(ctx, row));
-        let mode = match ctx.aes_mode {
+        let aes_mode = try_opt!(self.children[0].eval_string(ctx, row));
+        let origin = try_opt!(self.children[1].eval_string(ctx, row));
+        let key = try_opt!(self.children[2].eval_string(ctx, row));
+        let aes_mode = match AESMode::from(aes_mode.as_ref()) {
             Some(mode) => mode,
             None => {
                 ctx.warnings
-                    .append_warning(Error::warn_option_ignored("aes mode"));
+                    .append_warning(Error::not_support(&format!("{:?}'", aes_mode)));
                 return Ok(None);
             }
         };
 
-        if mode.iv_required && self.children.len() == 3 {
-            ctx.warnings
-                .append_warning(Error::warn_option_ignored("IV"));
-        }
-        let key_size = mode.key_size;
-        let aes_key_size = match get_key_size(key_size) {
-            Ok(size) => size,
-            Err(err) => {
-                ctx.warnings.append_warning(err);
+        let mut encryptor = match aes_mode.build_encryptor(key.as_ref(), None) {
+            Ok(encryptor) => encryptor,
+            Err(error) => {
+                ctx.warnings.append_warning(error);
                 return Ok(None);
             }
         };
-        let key_mysql = derive_key_mysql(key.as_ref(), key_size);
 
-        match mode.mode_name {
-            "ecb" => {
-                let mut encryptor =
-                    aes::ecb_encryptor(aes_key_size, key_mysql.as_ref(), blockmodes::PkcsPadding);
-                let mut final_result = Vec::<u8>::new();
-                let mut read_buffer = buffer::RefReadBuffer::new(crypt.as_ref());
-                let mut buffer = [0; 4096];
-                let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
-                loop {
-                    let result = encryptor.encrypt(&mut read_buffer, &mut write_buffer, true);
-                    final_result.extend(
-                        write_buffer
-                            .take_read_buffer()
-                            .take_remaining()
-                            .iter()
-                            .cloned(),
-                    );
-                    match result {
-                        Ok(buffer::BufferResult::BufferUnderflow) => break,
-                        Ok(buffer::BufferResult::BufferOverflow) => {}
-                        Err(_) => {
-                            ctx.warnings
-                                .append_warning(Error::wrong_args(&"Error".to_string()));
-                            return Ok(None);
-                        }
-                    }
+        let mut final_result = Vec::<u8>::new();
+        let mut read_buffer = buffer::RefReadBuffer::new(origin.as_ref());
+        let mut buffer = [0; 4096];
+        let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
+        loop {
+            let result = encryptor.encrypt(&mut read_buffer, &mut write_buffer, true);
+            final_result.extend(
+                write_buffer
+                    .take_read_buffer()
+                    .take_remaining()
+                    .iter()
+                    .cloned(),
+            );
+            match result {
+                Ok(buffer::BufferResult::BufferUnderflow) => break,
+                Ok(buffer::BufferResult::BufferOverflow) => {}
+                Err(_) => {
+                    ctx.warnings
+                        .append_warning(Error::wrong_args("aes::encrypt"));
+                    return Ok(None);
                 }
-                Ok(Some(Cow::Owned(final_result)))
-            }
-            _ => {
-                ctx.warnings
-                    .append_warning(Error::not_support(ctx.aes_mode.unwrap().mode_name));
-                Ok(None)
             }
         }
+        Ok(Some(Cow::Owned(final_result)))
     }
 
     pub fn aes_decrypt<'a, 'b: 'a>(
@@ -277,69 +347,52 @@ impl ScalarFunc {
         ctx: &mut EvalContext,
         row: &[Datum],
     ) -> Result<Option<Cow<'a, [u8]>>> {
-        let crypt = try_opt!(self.children[0].eval_string(ctx, row));
-        let key = try_opt!(self.children[1].eval_string(ctx, row));
-        let mode = match ctx.aes_mode {
+        let aes_mode = try_opt!(self.children[0].eval_string(ctx, row));
+        let crypt = try_opt!(self.children[1].eval_string(ctx, row));
+        let key = try_opt!(self.children[2].eval_string(ctx, row));
+        let aes_mode = match AESMode::from(aes_mode.as_ref()) {
             Some(mode) => mode,
             None => {
                 ctx.warnings
-                    .append_warning(Error::warn_option_ignored("aes mode"));
+                    .append_warning(Error::not_support(&format!("{:?}'", aes_mode)));
                 return Ok(None);
             }
         };
 
-        if mode.iv_required && self.children.len() == 3 {
-            ctx.warnings
-                .append_warning(Error::warn_option_ignored("IV"));
-        }
-        let key_size = mode.key_size;
-        let aes_key_size = match get_key_size(key_size) {
-            Ok(size) => size,
-            Err(err) => {
-                ctx.warnings.append_warning(err);
+        let mut decryptor = match aes_mode.build_decryptor(key.as_ref(), None) {
+            Ok(decryptor) => decryptor,
+            Err(error) => {
+                ctx.warnings.append_warning(error);
                 return Ok(None);
             }
         };
-        let key_mysql = derive_key_mysql(key.as_ref(), key_size);
 
-        match mode.mode_name {
-            "ecb" => {
-                let mut decryptor =
-                    aes::ecb_decryptor(aes_key_size, key_mysql.as_ref(), blockmodes::PkcsPadding);
-                let mut final_result = Vec::<u8>::new();
-                let mut read_buffer = buffer::RefReadBuffer::new(crypt.as_ref());
-                let mut buffer = [0; 4096];
-                let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
-                loop {
-                    let result = decryptor.decrypt(&mut read_buffer, &mut write_buffer, true);
-                    final_result.extend(
-                        write_buffer
-                            .take_read_buffer()
-                            .take_remaining()
-                            .iter()
-                            .cloned(),
-                    );
-                    match result {
-                        Ok(buffer::BufferResult::BufferUnderflow) => break,
-                        Ok(buffer::BufferResult::BufferOverflow) => {}
-                        Err(_) => {
-                            ctx.warnings
-                                .append_warning(Error::wrong_args(&"Error".to_string()));
-                            return Ok(None);
-                        }
-                    }
+        let mut final_result = Vec::<u8>::new();
+        let mut read_buffer = buffer::RefReadBuffer::new(crypt.as_ref());
+        let mut buffer = [0; 4096];
+        let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
+        loop {
+            let result = decryptor.decrypt(&mut read_buffer, &mut write_buffer, true);
+            final_result.extend(
+                write_buffer
+                    .take_read_buffer()
+                    .take_remaining()
+                    .iter()
+                    .cloned(),
+            );
+            match result {
+                Ok(buffer::BufferResult::BufferUnderflow) => break,
+                Ok(buffer::BufferResult::BufferOverflow) => {}
+                Err(_) => {
+                    ctx.warnings
+                        .append_warning(Error::wrong_args("aes::decrypt"));
+                    return Ok(None);
                 }
-                Ok(Some(Cow::Owned(final_result)))
-            }
-            _ => {
-                ctx.warnings
-                    .append_warning(Error::not_support(ctx.aes_mode.unwrap().mode_name));
-                Ok(None)
             }
         }
+        Ok(Some(Cow::Owned(final_result)))
     }
 }
-
 #[cfg(test)]
 mod tests {
     use coprocessor::codec::Datum;
@@ -578,11 +631,10 @@ mod tests {
         use super::EvalContext;
         let mut ctx = EvalContext::default();
         for (aes_name, origin, key, crypt) in DATA {
-            let mod_attr = ctx.cfg.aes_modes.get_mode_attr(aes_name).unwrap();
-            ctx.set_aes_mode(mod_attr);
+            let aes_name = datum_expr(Datum::Bytes(aes_name.as_bytes().to_vec()));
             let origin = datum_expr(Datum::Bytes(origin.as_bytes().to_vec()));
             let key = datum_expr(Datum::Bytes(key.as_bytes().to_vec()));
-            let op = scalar_func_expr(ScalarFuncSig::AesEncrypt, &[origin, key]);
+            let op = scalar_func_expr(ScalarFuncSig::AesEncrypt, &[aes_name, origin, key]);
             let op = Expression::build(&mut ctx, op).unwrap();
             let got = op.eval(&mut ctx, &[]).unwrap();
             let crypt = Datum::Bytes(hex::decode(crypt.as_bytes().to_vec()).unwrap());
@@ -595,13 +647,12 @@ mod tests {
         use super::EvalContext;
         let mut ctx = EvalContext::default();
         for (aes_name, origin, key, crypt) in DATA {
-            let mod_attr = ctx.cfg.aes_modes.get_mode_attr(aes_name).unwrap();
-            ctx.set_aes_mode(mod_attr);
+            let aes_name = datum_expr(Datum::Bytes(aes_name.as_bytes().to_vec()));
             let crypt = datum_expr(Datum::Bytes(
                 hex::decode(crypt.as_bytes().to_vec()).unwrap(),
             ));
             let key = datum_expr(Datum::Bytes(key.as_bytes().to_vec()));
-            let op = scalar_func_expr(ScalarFuncSig::AesDecrypt, &[crypt, key]);
+            let op = scalar_func_expr(ScalarFuncSig::AesDecrypt, &[aes_name, crypt, key]);
             let op = Expression::build(&mut ctx, op).unwrap();
             let got = op.eval(&mut ctx, &[]).unwrap();
             let origin = Datum::Bytes(origin.as_bytes().to_vec());
