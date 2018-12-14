@@ -659,4 +659,43 @@ mod tests {
             assert_eq!(got, origin);
         }
     }
+
+    #[test]
+    fn test_aes_name_invalid() {
+        use super::EvalContext;
+        let mut ctx = EvalContext::default();
+        let aes_name = datum_expr(Datum::Bytes(b"aes-128-ecbb".to_vec()));
+        let crypt = datum_expr(Datum::Bytes(
+            hex::decode(b"697BFE9B3F8C2F289DD82C88C7BC95C4".to_vec()).unwrap(),
+        ));
+        let key = datum_expr(Datum::Bytes(b"1234567890123456".to_vec()));
+        let op = scalar_func_expr(ScalarFuncSig::AesDecrypt, &[aes_name, crypt, key]);
+        let op = Expression::build(&mut ctx, op).unwrap();
+        let got = op.eval(&mut ctx, &[]).unwrap();
+        assert_eq!(got, Datum::Null);
+
+        let mut ctx = EvalContext::default();
+        let aes_name = datum_expr(Datum::Bytes(b"aes-128-ecbb".to_vec()));
+        let origin = datum_expr(Datum::Bytes(b"pingcap".to_vec()));
+        let key = datum_expr(Datum::Bytes(b"1234567890123456".to_vec()));
+        let op = scalar_func_expr(ScalarFuncSig::AesEncrypt, &[aes_name, origin, key]);
+        let op = Expression::build(&mut ctx, op).unwrap();
+        let got = op.eval(&mut ctx, &[]).unwrap();
+        assert_eq!(got, Datum::Null);
+    }
+
+    #[test]
+    fn test_aes_key_invalid() {
+        use super::EvalContext;
+        let mut ctx = EvalContext::default();
+        let aes_name = datum_expr(Datum::Bytes(b"aes-128-ecb".to_vec()));
+        let crypt = datum_expr(Datum::Bytes(
+            hex::decode(b"697BFE9B3F8C2F289DD82C88C7BC95C4".to_vec()).unwrap(),
+        ));
+        let key = datum_expr(Datum::Bytes(b"".to_vec()));
+        let op = scalar_func_expr(ScalarFuncSig::AesDecrypt, &[aes_name, crypt, key]);
+        let op = Expression::build(&mut ctx, op).unwrap();
+        let got = op.eval(&mut ctx, &[]).unwrap();
+        assert_eq!(got, Datum::Null);
+    }
 }
